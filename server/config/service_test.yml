@@ -1,0 +1,6 @@
+etcd:
+ timeout: 5
+ endpoints:
+  - localhost:12379
+  - localhost:22379
+  - localhost:32379

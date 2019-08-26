@@ -1,49 +1,60 @@
 package main
 
 import (
-	"math/rand"
-	"net/http"
-
+	"flag"
+	"github.com/DataDog/datadog-go/statsd"
 	log "github.com/sirupsen/logrus"
+	"grabvn-golang-bootcamp/week_6/http-echo/server"
+	"grabvn-golang-bootcamp/week_6/http-echo/server/config"
+	"os"
 )
 
+var (
+	hostParam     string
+	portParam     int
+	logLevelParam string
+	configPath    string
+	logFile       string
+	client        *statsd.Client
+	err           error
+)
+
+func init() {
+	client, err = statsd.New("127.0.0.1:8125",
+		statsd.WithNamespace("localhost"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
 func main() {
-
-	// Create our server
+	flag.StringVar(&hostParam, "host", "127.0.0.1", "the ip will listen")
+	flag.IntVar(&portParam, "port", 0, "the port will bind")
+	flag.StringVar(&logLevelParam, "logLevel", "Info", "the log level")
+	flag.StringVar(&configPath, "configPath", "./service.yml", "the config file location")
+	flag.StringVar(&logFile, "logFile", "./service.log", "the log file location")
+	flag.Parse()
+	config := config.Loadconfig(configPath)
+	// Create our servers
 	logger := log.New()
-	server := Server{
-		logger: logger,
+	logger.SetFormatter(&log.JSONFormatter{})
+	logLevel, err := log.ParseLevel(logLevelParam)
+	if err != nil {
+		logLevel = log.InfoLevel
 	}
+	logger.Level = logLevel
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	logger.SetOutput(f)
 
+	requestInfoGenerator := server.CreateRequestInfoGenertor()
+	logInfo := server.CreateLogInfo()
+
+	etcdClient := server.NewEtcdClient(config.Etcd.Endpoints, config.Etcd.Timeout)
+
+	bindAddress := server.CreateAddress(hostParam, portParam)
+	s := server.CreateServer(bindAddress, config, logger, requestInfoGenerator, logInfo, client)
+	s.SetEtcClient(etcdClient)
 	// Start the server
-	server.ListenAndServe()
-}
-
-// Server represents our server.
-type Server struct {
-	logger *log.Logger
-}
-
-// ListenAndServe starts the server
-func (s *Server) ListenAndServe() {
-	s.logger.Info("echo server is starting on port 8080...")
-	http.HandleFunc("/", s.echo)
-	http.ListenAndServe(":8080", nil)
-}
-
-// Echo echos back the request as a response
-func (s *Server) echo(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("Access-Control-Allow-Origin", "*")
-	writer.Header().Set("Access-Control-Allow-Headers", "Content-Range, Content-Disposition, Content-Type, ETag")
-
-	// 30% chance of failure
-	if rand.Intn(100) < 30 {
-		writer.WriteHeader(500)
-		writer.Write([]byte("a chaos monkey broke your server"))
-		return
-	}
-
-	// Happy path
-	writer.WriteHeader(200)
-	request.Write(writer)
+	s.ListenAndServe()
 }

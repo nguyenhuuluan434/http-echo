@@ -1,0 +1,6 @@
+etcd:
+ timeout: 5
+ endpoints:
+  - http://localhost:23791
+  - http://localhost:23792
+  - http://localhost:23793
